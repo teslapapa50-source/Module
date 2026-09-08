@@ -536,17 +536,12 @@ API._reanimate_internal = function(bool, remote, args)
 				pcall(function() real_humanoid:ChangeState(Enum.HumanoidStateType.Physics) end)
 			end
 			forceSimRadius()
-			local fakeHRP = cloned_char:FindFirstChild("HumanoidRootPart")
 			for i = 1, #part_map do
 				local entry = part_map[i]
 				local rP = entry.real
 				local fP = entry.fake
 				if rP and fP and rP.Parent and fP.Parent then
 					rP.CanCollide = false
-					-- network ownership toward fake counterpart (reduces replication lag)
-					if fakeHRP then
-						setHidden(rP, "PhysicsRepRootPart", fakeHRP)
-					end
 					setHidden(rP, "NetworkIsSleeping", false)
 					rP.CFrame = fP.CFrame
 				end
@@ -566,8 +561,9 @@ API._reanimate_internal = function(bool, remote, args)
 			local fHrpAngVel = fakeHRP and fakeHRP.AssemblyAngularVelocity or Vector3.zero
 
 			forceSimRadius()
-			if realHRP and fakeHRP then
-				setHidden(realHRP, "PhysicsRepRootPart", fakeHRP)
+			-- only keep real HRP awake; do NOT bind PhysicsRepRootPart to fakeHRP
+			-- (that made the body invisible to others when bang also sets PhysicsRepRootPart)
+			if realHRP then
 				setHidden(realHRP, "NetworkIsSleeping", false)
 			end
 
@@ -578,9 +574,6 @@ API._reanimate_internal = function(bool, remote, args)
 				if rP and fP and rP.Parent and fP.Parent then
 					rP.Anchored = false
 					rP.CanCollide = false
-					if fakeHRP then
-						setHidden(rP, "PhysicsRepRootPart", fakeHRP)
-					end
 					setHidden(rP, "NetworkIsSleeping", false)
 					rP.CFrame = fP.CFrame
 
@@ -607,15 +600,11 @@ API._reanimate_internal = function(bool, remote, args)
 				cloned_humanoid.NameDisplayDistance = 0
 				cloned_humanoid.HealthDisplayDistance = 0
 			end
-			local fakeHRP = cloned_char:FindFirstChild("HumanoidRootPart")
 			for i = 1, #part_map do
 				local entry = part_map[i]
 				local rP = entry.real
 				local fP = entry.fake
 				if rP and fP and rP.Parent and fP.Parent then
-					if fakeHRP then
-						setHidden(rP, "PhysicsRepRootPart", fakeHRP)
-					end
 					rP.CFrame = fP.CFrame
 				end
 			end
@@ -652,7 +641,7 @@ API._reanimate_internal = function(bool, remote, args)
 		zen.flags.reanimated = true;
 	else
 		-- ════════════════════════════════════════════════════════════════
-		-- SAFE REANIMATION DISABLE (Restoration Pipeline) HEHE TAKE TWO
+		-- SAFE REANIMATION DISABLE (Restoration Pipeline)
 		-- ════════════════════════════════════════════════════════════════
 		if not zen.flags.reanimated then
 			return;
