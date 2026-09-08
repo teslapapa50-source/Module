@@ -10,7 +10,6 @@ local zen = {
 	flags = {
 		reanimated = false;
 		is_processing = false;
-		external_lock = false;
 	};
 	clones = {};
 	connections = {
@@ -67,36 +66,6 @@ local part_names = {
 	"Right Leg",
 	"HumanoidRootPart"
 };
-
-
--- zero-delay network ownership helpers (executor)
-local function setHidden(obj, prop, value)
-	if not obj then return end
-	pcall(function()
-		if type(sethiddenproperty) == "function" then
-			sethiddenproperty(obj, prop, value)
-		elseif type(set_hidden_property) == "function" then
-			set_hidden_property(obj, prop, value)
-		elseif type(sethidden) == "function" then
-			sethidden(obj, prop, value)
-		end
-	end)
-end
-
-local function forceSimRadius()
-	local lp = zen.services.players.LocalPlayer
-	if not lp then return end
-	pcall(function()
-		if type(sethiddenproperty) == "function" then
-			sethiddenproperty(lp, "SimulationRadius", 9e9)
-			sethiddenproperty(lp, "MaxSimulationRadius", 9e9)
-		end
-		if type(setsimulationradius) == "function" then
-			setsimulationradius(9e9, 9e9)
-		end
-	end)
-end
-
 
 local API = {};
 
@@ -282,11 +251,8 @@ API.stop_animation = function()
 		local clone_animate_script = clone_char:FindFirstChild("Animate")
 		if clone_animate_script and clone_animate_script:IsA("LocalScript") then
 			clone_animate_script.Disabled = true
-			task.defer(function()
-				if clone_animate_script and clone_animate_script.Parent then
-					clone_animate_script.Disabled = false
-				end
-			end)
+			task.wait()
+			clone_animate_script.Disabled = false
 		end
 	end
     
@@ -378,19 +344,6 @@ API._reanimate_internal = function(bool, remote, args)
 
 		zen.real_chars[player] = real_char;
 
-		-- kick ragdoll / motor break early (don't wait for full pipeline)
-		task.spawn(function()
-			if remote then
-				pcall(function() fire_remote(remote, is_local_event, unpack(args or {})) end)
-			else
-				pcall(function()
-					for _, v in ipairs(real_char:GetDescendants()) do
-						if v:IsA("Motor6D") then v.Enabled = false end
-					end
-				end)
-			end
-		end)
-
 		-- Clone the character
 		local cloned_char = clone_char(real_char);
 		if typeof(cloned_char) == "string" then return cloned_char end;
@@ -465,8 +418,8 @@ API._reanimate_internal = function(bool, remote, args)
 			end
 		end
 
-		for i = 1, math.min(#part_map, 15) do
-			for j = i + 1, math.min(#part_map, 15) do
+		for i = 1, math.min(#part_map, 25) do
+			for j = i + 1, math.min(#part_map, 25) do
 				local p1 = part_map[i].real
 				local p2 = part_map[j].real
 				if p1 and p2 then
@@ -510,13 +463,21 @@ API._reanimate_internal = function(bool, remote, args)
 		end;
 		cloned_humanoid:ChangeState(Enum.HumanoidStateType.Running)
 
-		-- ragdoll already kicked early above; optional second pulse for remote games
-		if remote then
-			task.spawn(function()
-				task.wait(0.05)
-				pcall(function() fire_remote(remote, is_local_event, unpack(args or {})) end)
-			end)
-		end
+		-- Handle ragdoll: if remote exists, fire it; otherwise, disable all real Motor6Ds for universal compatibility
+		task.spawn(function()
+			if remote then
+				local err = fire_remote(remote, is_local_event, unpack(args or {}));
+				if err then warn("Zen Reanimations ragdoll error: " .. tostring(err)) end;
+			else
+				pcall(function()
+					for _, v in ipairs(real_char:GetDescendants()) do
+						if v:IsA("Motor6D") then
+							v.Enabled = false
+						end
+					end
+				end)
+			end
+		end)
 
 		-- Clear old connections
 		for k, conn in pairs(zen.connections) do
@@ -536,20 +497,13 @@ API._reanimate_internal = function(bool, remote, args)
 			if real_humanoid and real_humanoid.Parent then
 				pcall(function() real_humanoid:ChangeState(Enum.HumanoidStateType.Physics) end)
 			end
-			forceSimRadius()
-			local skipHRP = zen.flags.external_lock
 			for i = 1, #part_map do
 				local entry = part_map[i]
 				local rP = entry.real
 				local fP = entry.fake
 				if rP and fP and rP.Parent and fP.Parent then
-					if skipHRP and rP.Name == "HumanoidRootPart" then
-						-- bang owns real HRP this frame
-					else
-						rP.CanCollide = false
-						setHidden(rP, "NetworkIsSleeping", false)
-						rP.CFrame = fP.CFrame
-					end
+					rP.CanCollide = false
+					rP.CFrame = fP.CFrame
 				end
 			end
 		end)
@@ -562,36 +516,23 @@ API._reanimate_internal = function(bool, remote, args)
 			end;
 
 			local fakeHRP = cloned_char:FindFirstChild("HumanoidRootPart")
-			local realHRP = real_char:FindFirstChild("HumanoidRootPart")
 			local fHrpVel = fakeHRP and fakeHRP.AssemblyLinearVelocity or Vector3.zero
 			local fHrpAngVel = fakeHRP and fakeHRP.AssemblyAngularVelocity or Vector3.zero
 
-			forceSimRadius()
-			-- only keep real HRP awake; do NOT bind PhysicsRepRootPart to fakeHRP
-			-- (that made the body invisible to others when bang also sets PhysicsRepRootPart)
-			if realHRP then
-				setHidden(realHRP, "NetworkIsSleeping", false)
-			end
-
-			local skipHRP = zen.flags.external_lock
 			for i = 1, #part_map do
 				local entry = part_map[i]
 				local rP = entry.real
 				local fP = entry.fake
 				if rP and fP and rP.Parent and fP.Parent then
-					if skipHRP and rP.Name == "HumanoidRootPart" then
-						-- bang owns real HRP
-					else
-						rP.Anchored = false
-						rP.CanCollide = false
-						setHidden(rP, "NetworkIsSleeping", false)
-						rP.CFrame = fP.CFrame
-						local pVel = fP.AssemblyLinearVelocity or fHrpVel
-						local pAngVel = fP.AssemblyAngularVelocity or fHrpAngVel
-						local smoothVel = (pVel.Magnitude > 0.05) and pVel or Vector3.new(0, -0.01, 0)
-						rP.AssemblyLinearVelocity = smoothVel
-						rP.AssemblyAngularVelocity = pAngVel
-					end
+					rP.Anchored = false
+					rP.CanCollide = false
+					rP.CFrame = fP.CFrame
+
+					local pVel = fP.AssemblyLinearVelocity or fHrpVel
+					local pAngVel = fP.AssemblyAngularVelocity or fHrpAngVel
+					local smoothVel = (pVel.Magnitude > 0.05) and pVel or Vector3.new(0, -0.01, 0)
+					rP.AssemblyLinearVelocity = smoothVel
+					rP.AssemblyAngularVelocity = pAngVel
 				end
 			end
 		end)
@@ -610,15 +551,12 @@ API._reanimate_internal = function(bool, remote, args)
 				cloned_humanoid.NameDisplayDistance = 0
 				cloned_humanoid.HealthDisplayDistance = 0
 			end
-			local skipHRP = zen.flags.external_lock
 			for i = 1, #part_map do
 				local entry = part_map[i]
 				local rP = entry.real
 				local fP = entry.fake
 				if rP and fP and rP.Parent and fP.Parent then
-					if not (skipHRP and rP.Name == "HumanoidRootPart") then
-						rP.CFrame = fP.CFrame
-					end
+					rP.CFrame = fP.CFrame
 				end
 			end
 		end)
@@ -651,10 +589,6 @@ API._reanimate_internal = function(bool, remote, args)
 			end;
 		end);
 
-		forceSimRadius()
-		if real_hrp then
-			setHidden(real_hrp, "NetworkIsSleeping", false)
-		end
 		zen.flags.reanimated = true;
 	else
 		-- ════════════════════════════════════════════════════════════════
@@ -784,11 +718,8 @@ API._reanimate_internal = function(bool, remote, args)
 			local real_animate = real_char:FindFirstChild("Animate");
 			if real_animate and real_animate:IsA("LocalScript") then
 				real_animate.Disabled = true;
-				task.defer(function()
-					if real_animate and real_animate.Parent then
-						real_animate.Disabled = false;
-					end
-				end)
+				task.wait();
+				real_animate.Disabled = false;
 			end;
 
 			-- 5. Hold position for 3 frames so physics doesn't drop character during transition
@@ -1092,10 +1023,6 @@ end
 
 --- Returns true if the local player is currently reanimated.
 -- @return boolean
-API.set_external_lock = function(bool)
-	zen.flags.external_lock = bool and true or false
-end
-
 API.is_reanimated = function()
 	return zen.flags.reanimated;
 end;
