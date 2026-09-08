@@ -1,16 +1,16 @@
 ﻿[
     {
-        "path":  "https://raw.githubusercontent.com/teslapapa50-source/Reanim/refs/heads/main/Reanim/Anim/dick_thrust.lua?token=GHSAT0AAAAAAEIDEMZQY2LBE4UHTFHZPTW22U72N7Q",
+        "path":  "https://raw.githubusercontent.com/teslapapa50-source/Module/refs/heads/main/dick_thrust.lua",
         "category":  "Fun",
         "name":  "Dick_Thrust"
     },
     {
-        "path":  "https://raw.githubusercontent.com/teslapapa50-source/Reanim/refs/heads/main/Reanim/Anim/Disrespectful%20Dance.lua?token=GHSAT0AAAAAAEIDEMZR2NHGKRN2W4SYZX522U72OUQ",
+        "path":  "https://raw.githubusercontent.com/teslapapa50-source/Module/refs/heads/main/Disrespectful%20Dance.lua",
         "category":  "Fun",
         "name":  "Disrespectful Dance"
     },
     {
-        "path":  "https://raw.githubusercontent.com/teslapapa50-source/Reanim/refs/heads/main/Reanim/Anim/Dancin'%20Shuffle.lua?token=GHSAT0AAAAAAEIDEMZRTS66ILIQHOLT6P6G2U72PPA",
+        "path":  "https://raw.githubusercontent.com/teslapapa50-source/Module/refs/heads/main/Dancin'%20Shuffle.lua",
         "category":  "Fun",
         "name":  "Dancin' Shuffle"
     },
@@ -20,17 +20,17 @@
         "name":  "2 arm stroke"
     },
     {
-        "path":  "https://raw.githubusercontent.com/teslapapa50-source/Reanim/refs/heads/main/Reanim/Anim/Dancin'%20Shuffle%202.lua?token=GHSAT0AAAAAAEIDEMZQC6HMJDMVBGH7APW62U72QLA",
+        "path":  "https://raw.githubusercontent.com/teslapapa50-source/Module/refs/heads/main/Dancin'%20Shuffle%202.lua",
         "category":  "Fun",
         "name":  "Dancin' Shuffle 2"
     },
     {
-        "path":  "https://raw.githubusercontent.com/teslapapa50-source/Reanim/refs/heads/main/Reanim/Anim/DAME%20UN%20GRR.lua?token=GHSAT0AAAAAAEIDEMZRETIJDDGY7PLZIFQK2U72Q5A",
+        "path":  "https://raw.githubusercontent.com/teslapapa50-source/Module/refs/heads/main/DAME%20UN%20GRR.lua",
         "category":  "Fun",
         "name":  "DAME UN GRR"
     },
     {
-        "path":  "https://raw.githubusercontent.com/teslapapa50-source/Reanim/refs/heads/main/Reanim/Anim/Dance%20Moves.lua?token=GHSAT0AAAAAAEIDEMZR7LNR32UADNQEDQ6M2U72RRQ",
+        "path":  "https://raw.githubusercontent.com/teslapapa50-source/Module/refs/heads/main/Dance%20Moves.lua",
         "category":  "Fun",
         "name":  "Dance Moves"
     }
