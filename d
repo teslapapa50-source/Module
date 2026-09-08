@@ -67,6 +67,36 @@ local part_names = {
 	"HumanoidRootPart"
 };
 
+
+-- zero-delay network ownership helpers (executor)
+local function setHidden(obj, prop, value)
+	if not obj then return end
+	pcall(function()
+		if type(sethiddenproperty) == "function" then
+			sethiddenproperty(obj, prop, value)
+		elseif type(set_hidden_property) == "function" then
+			set_hidden_property(obj, prop, value)
+		elseif type(sethidden) == "function" then
+			sethidden(obj, prop, value)
+		end
+	end)
+end
+
+local function forceSimRadius()
+	local lp = zen.services.players.LocalPlayer
+	if not lp then return end
+	pcall(function()
+		if type(sethiddenproperty) == "function" then
+			sethiddenproperty(lp, "SimulationRadius", 9e9)
+			sethiddenproperty(lp, "MaxSimulationRadius", 9e9)
+		end
+		if type(setsimulationradius) == "function" then
+			setsimulationradius(9e9, 9e9)
+		end
+	end)
+end
+
+
 local API = {};
 
 local get_game_ragdoll_info = function(enable)
@@ -496,7 +526,7 @@ API._reanimate_internal = function(bool, remote, args)
 		end
 
 		-- ════════════════════════════════════════════════════════════════
-		-- 3-STAGE SYNCHRONIZATION PIPELINE HEHE
+		-- 3-STAGE SYNCHRONIZATION PIPELINE
 		-- ════════════════════════════════════════════════════════════════
 
 		-- 1. Stepped (PreSimulation): Maintain noclip and neutral humanoid state before physics step
@@ -505,12 +535,19 @@ API._reanimate_internal = function(bool, remote, args)
 			if real_humanoid and real_humanoid.Parent then
 				pcall(function() real_humanoid:ChangeState(Enum.HumanoidStateType.Physics) end)
 			end
+			forceSimRadius()
+			local fakeHRP = cloned_char:FindFirstChild("HumanoidRootPart")
 			for i = 1, #part_map do
 				local entry = part_map[i]
 				local rP = entry.real
 				local fP = entry.fake
 				if rP and fP and rP.Parent and fP.Parent then
 					rP.CanCollide = false
+					-- network ownership toward fake counterpart (reduces replication lag)
+					if fakeHRP then
+						setHidden(rP, "PhysicsRepRootPart", fakeHRP)
+					end
+					setHidden(rP, "NetworkIsSleeping", false)
 					rP.CFrame = fP.CFrame
 				end
 			end
@@ -524,8 +561,15 @@ API._reanimate_internal = function(bool, remote, args)
 			end;
 
 			local fakeHRP = cloned_char:FindFirstChild("HumanoidRootPart")
+			local realHRP = real_char:FindFirstChild("HumanoidRootPart")
 			local fHrpVel = fakeHRP and fakeHRP.AssemblyLinearVelocity or Vector3.zero
 			local fHrpAngVel = fakeHRP and fakeHRP.AssemblyAngularVelocity or Vector3.zero
+
+			forceSimRadius()
+			if realHRP and fakeHRP then
+				setHidden(realHRP, "PhysicsRepRootPart", fakeHRP)
+				setHidden(realHRP, "NetworkIsSleeping", false)
+			end
 
 			for i = 1, #part_map do
 				local entry = part_map[i]
@@ -534,6 +578,10 @@ API._reanimate_internal = function(bool, remote, args)
 				if rP and fP and rP.Parent and fP.Parent then
 					rP.Anchored = false
 					rP.CanCollide = false
+					if fakeHRP then
+						setHidden(rP, "PhysicsRepRootPart", fakeHRP)
+					end
+					setHidden(rP, "NetworkIsSleeping", false)
 					rP.CFrame = fP.CFrame
 
 					local pVel = fP.AssemblyLinearVelocity or fHrpVel
@@ -559,11 +607,15 @@ API._reanimate_internal = function(bool, remote, args)
 				cloned_humanoid.NameDisplayDistance = 0
 				cloned_humanoid.HealthDisplayDistance = 0
 			end
+			local fakeHRP = cloned_char:FindFirstChild("HumanoidRootPart")
 			for i = 1, #part_map do
 				local entry = part_map[i]
 				local rP = entry.real
 				local fP = entry.fake
 				if rP and fP and rP.Parent and fP.Parent then
+					if fakeHRP then
+						setHidden(rP, "PhysicsRepRootPart", fakeHRP)
+					end
 					rP.CFrame = fP.CFrame
 				end
 			end
@@ -600,7 +652,7 @@ API._reanimate_internal = function(bool, remote, args)
 		zen.flags.reanimated = true;
 	else
 		-- ════════════════════════════════════════════════════════════════
-		-- SAFE REANIMATION DISABLE (Restoration Pipeline)
+		-- SAFE REANIMATION DISABLE (Restoration Pipeline) HEHE TAKE TWO
 		-- ════════════════════════════════════════════════════════════════
 		if not zen.flags.reanimated then
 			return;
