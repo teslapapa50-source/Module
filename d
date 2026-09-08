@@ -251,8 +251,11 @@ API.stop_animation = function()
 		local clone_animate_script = clone_char:FindFirstChild("Animate")
 		if clone_animate_script and clone_animate_script:IsA("LocalScript") then
 			clone_animate_script.Disabled = true
-			task.wait()
-			clone_animate_script.Disabled = false
+			task.defer(function()
+				if clone_animate_script and clone_animate_script.Parent then
+					clone_animate_script.Disabled = false
+				end
+			end)
 		end
 	end
     
@@ -344,6 +347,19 @@ API._reanimate_internal = function(bool, remote, args)
 
 		zen.real_chars[player] = real_char;
 
+		-- kick ragdoll / motor break early (don't wait for full pipeline)
+		task.spawn(function()
+			if remote then
+				pcall(function() fire_remote(remote, is_local_event, unpack(args or {})) end)
+			else
+				pcall(function()
+					for _, v in ipairs(real_char:GetDescendants()) do
+						if v:IsA("Motor6D") then v.Enabled = false end
+					end
+				end)
+			end
+		end)
+
 		-- Clone the character
 		local cloned_char = clone_char(real_char);
 		if typeof(cloned_char) == "string" then return cloned_char end;
@@ -418,8 +434,8 @@ API._reanimate_internal = function(bool, remote, args)
 			end
 		end
 
-		for i = 1, math.min(#part_map, 25) do
-			for j = i + 1, math.min(#part_map, 25) do
+		for i = 1, math.min(#part_map, 15) do
+			for j = i + 1, math.min(#part_map, 15) do
 				local p1 = part_map[i].real
 				local p2 = part_map[j].real
 				if p1 and p2 then
@@ -463,21 +479,13 @@ API._reanimate_internal = function(bool, remote, args)
 		end;
 		cloned_humanoid:ChangeState(Enum.HumanoidStateType.Running)
 
-		-- Handle ragdoll: if remote exists, fire it; otherwise, disable all real Motor6Ds for universal compatibility
-		task.spawn(function()
-			if remote then
-				local err = fire_remote(remote, is_local_event, unpack(args or {}));
-				if err then warn("Zen Reanimations ragdoll error: " .. tostring(err)) end;
-			else
-				pcall(function()
-					for _, v in ipairs(real_char:GetDescendants()) do
-						if v:IsA("Motor6D") then
-							v.Enabled = false
-						end
-					end
-				end)
-			end
-		end)
+		-- ragdoll already kicked early above; optional second pulse for remote games
+		if remote then
+			task.spawn(function()
+				task.wait(0.05)
+				pcall(function() fire_remote(remote, is_local_event, unpack(args or {})) end)
+			end)
+		end
 
 		-- Clear old connections
 		for k, conn in pairs(zen.connections) do
@@ -488,7 +496,7 @@ API._reanimate_internal = function(bool, remote, args)
 		end
 
 		-- ════════════════════════════════════════════════════════════════
-		-- 3-STAGE SYNCHRONIZATION PIPELINE
+		-- 3-STAGE SYNCHRONIZATION PIPELINE HEHE
 		-- ════════════════════════════════════════════════════════════════
 
 		-- 1. Stepped (PreSimulation): Maintain noclip and neutral humanoid state before physics step
@@ -718,8 +726,11 @@ API._reanimate_internal = function(bool, remote, args)
 			local real_animate = real_char:FindFirstChild("Animate");
 			if real_animate and real_animate:IsA("LocalScript") then
 				real_animate.Disabled = true;
-				task.wait();
-				real_animate.Disabled = false;
+				task.defer(function()
+					if real_animate and real_animate.Parent then
+						real_animate.Disabled = false;
+					end
+				end)
 			end;
 
 			-- 5. Hold position for 3 frames so physics doesn't drop character during transition
