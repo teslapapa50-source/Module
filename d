@@ -10,6 +10,7 @@ local zen = {
 	flags = {
 		reanimated = false;
 		is_processing = false;
+		external_lock = false;
 	};
 	clones = {};
 	connections = {
@@ -536,14 +537,19 @@ API._reanimate_internal = function(bool, remote, args)
 				pcall(function() real_humanoid:ChangeState(Enum.HumanoidStateType.Physics) end)
 			end
 			forceSimRadius()
+			local skipHRP = zen.flags.external_lock
 			for i = 1, #part_map do
 				local entry = part_map[i]
 				local rP = entry.real
 				local fP = entry.fake
 				if rP and fP and rP.Parent and fP.Parent then
-					rP.CanCollide = false
-					setHidden(rP, "NetworkIsSleeping", false)
-					rP.CFrame = fP.CFrame
+					if skipHRP and rP.Name == "HumanoidRootPart" then
+						-- bang owns real HRP this frame
+					else
+						rP.CanCollide = false
+						setHidden(rP, "NetworkIsSleeping", false)
+						rP.CFrame = fP.CFrame
+					end
 				end
 			end
 		end)
@@ -567,21 +573,25 @@ API._reanimate_internal = function(bool, remote, args)
 				setHidden(realHRP, "NetworkIsSleeping", false)
 			end
 
+			local skipHRP = zen.flags.external_lock
 			for i = 1, #part_map do
 				local entry = part_map[i]
 				local rP = entry.real
 				local fP = entry.fake
 				if rP and fP and rP.Parent and fP.Parent then
-					rP.Anchored = false
-					rP.CanCollide = false
-					setHidden(rP, "NetworkIsSleeping", false)
-					rP.CFrame = fP.CFrame
-
-					local pVel = fP.AssemblyLinearVelocity or fHrpVel
-					local pAngVel = fP.AssemblyAngularVelocity or fHrpAngVel
-					local smoothVel = (pVel.Magnitude > 0.05) and pVel or Vector3.new(0, -0.01, 0)
-					rP.AssemblyLinearVelocity = smoothVel
-					rP.AssemblyAngularVelocity = pAngVel
+					if skipHRP and rP.Name == "HumanoidRootPart" then
+						-- bang owns real HRP
+					else
+						rP.Anchored = false
+						rP.CanCollide = false
+						setHidden(rP, "NetworkIsSleeping", false)
+						rP.CFrame = fP.CFrame
+						local pVel = fP.AssemblyLinearVelocity or fHrpVel
+						local pAngVel = fP.AssemblyAngularVelocity or fHrpAngVel
+						local smoothVel = (pVel.Magnitude > 0.05) and pVel or Vector3.new(0, -0.01, 0)
+						rP.AssemblyLinearVelocity = smoothVel
+						rP.AssemblyAngularVelocity = pAngVel
+					end
 				end
 			end
 		end)
@@ -600,12 +610,15 @@ API._reanimate_internal = function(bool, remote, args)
 				cloned_humanoid.NameDisplayDistance = 0
 				cloned_humanoid.HealthDisplayDistance = 0
 			end
+			local skipHRP = zen.flags.external_lock
 			for i = 1, #part_map do
 				local entry = part_map[i]
 				local rP = entry.real
 				local fP = entry.fake
 				if rP and fP and rP.Parent and fP.Parent then
-					rP.CFrame = fP.CFrame
+					if not (skipHRP and rP.Name == "HumanoidRootPart") then
+						rP.CFrame = fP.CFrame
+					end
 				end
 			end
 		end)
@@ -972,7 +985,7 @@ API.play_animation = function(url, speed)
 	end
     
 	if found_joints == 0 then
-		return "Animation Error: NO JOINTS MATCH! Are you using an R6 avatar for an R15 animation? Or did another script break your joints? hehe"
+		return "Animation Error: NO JOINTS MATCH! Are you using an R6 avatar for an R15 animation? Or did another script break your joints?"
 	end
 
 	anim.state.is_playing = true;
@@ -1079,6 +1092,10 @@ end
 
 --- Returns true if the local player is currently reanimated.
 -- @return boolean
+API.set_external_lock = function(bool)
+	zen.flags.external_lock = bool and true or false
+end
+
 API.is_reanimated = function()
 	return zen.flags.reanimated;
 end;
