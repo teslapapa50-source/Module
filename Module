@@ -142,7 +142,7 @@ local clone_char = function(model)
 		end
 	end
     
-	-- Manually reconstruct any missing hehe Motor6Ds (bypasses games that break Clone())
+	-- Manually reconstruct any missing Motor6Ds (bypasses games that break Clone())
 	for _, desc in ipairs(model:GetDescendants()) do
 		if desc:IsA("Motor6D") and desc.Part0 and desc.Part1 then
 			local p0_name = desc.Part0.Name
@@ -839,53 +839,38 @@ API.play_animation = function(url, speed)
 	local anim = zen.animation;
 	anim.state.speed = tonumber(speed) or 1.0;
 
-	local keyframe_data = anim.cache[url];
-	if not keyframe_data then
-		local response
-		if typeof(url) == "table" then
-			keyframe_data = url
-		elseif typeof(url) == "string" and (url:find("^%s*return") or url:find("^%s*{") or url:find("^%s*%-%-")) then
-			response = url
-		elseif typeof(url) == "string" and url:sub(1, 4) == "http" then
-			local cache_path
-			if isfolder and makefolder and isfile and readfile and writefile then
-				if not isfolder("ZenAnimCache") then
-					pcall(makefolder, "ZenAnimCache")
+	-- Always resolve keyframes (prefer memory cache, validate, else reload)
+	local function extract_keyframes(data)
+		if typeof(data) ~= "table" then return nil end
+		-- already a frame list: { {Time=, Data=}, ... }
+		if #data > 0 and type(data[1]) == "table" and data[1].Time ~= nil then
+			return data
+		end
+		-- map of name -> frames
+		local best, bestN = nil, 0
+		for k, v in pairs(data) do
+			if type(v) == "table" and #v > bestN then
+				if v[1] and type(v[1]) == "table" and (v[1].Time ~= nil or v[1].Data ~= nil) then
+					best, bestN = v, #v
+				elseif type(k) == "number" and v.Time ~= nil then
+					return data
 				end
-				local safe_name = url:match("([^/]+)$") or "unknown.lua"
-				safe_name = safe_name:gsub("%%20", "_"):gsub("%%27", "")
-				cache_path = "ZenAnimCache/" .. safe_name
-			end
-            
-			if cache_path and isfile(cache_path) then
-				local success, file_res = pcall(readfile, cache_path)
-				if success then
-					response = file_res
-				end
-			end
-            
-			if not response then
-				local success, http_res = pcall(game.HttpGet, game, url);
-				if not success then return "Animation Error: Failed to fetch URL." end
-				response = http_res
-                
-				if cache_path then
-					pcall(writefile, cache_path, response)
-				end
-			end
-		else
-			if type(readfile) == "function" then
-				local success, file_res = pcall(readfile, url)
-				if not success then return "Animation Error: Failed to read local file." end
-				response = file_res
-			else
-				return "Animation Error: Cannot load local file (readfile not supported)."
 			end
 		end
-        
-		-- Custom regex parser for animation files
+		return best
+	end
+
+	local function parse_response(response, source_url)
+		if type(response) ~= "string" or #response < 5 then
+			return nil, "empty response"
+		end
+		-- strip BOM
+		if response:sub(1, 3) == "\239\187\191" then
+			response = response:sub(4)
+		end
+		local keyframe_data
 		local is_custom_format = false
-		if response:match("{Time%s*=") then
+		if response:find("{Time%s*=") or response:find("Time%s*=") then
 			local frames = {}
 			for t_str, data_block in response:gmatch("{Time%s*=%s*([%d%.]+),%s*Data%s*=%s*{(.-)}}") do
 				local t_val = tonumber(t_str)
@@ -897,33 +882,113 @@ API.play_animation = function(url, speed)
 					end
 					if #n == 12 then
 						frame_data[part] = CFrame.new(n[1], n[2], n[3], n[4], n[5], n[6], n[7], n[8], n[9], n[10], n[11], n[12])
+					elseif #n >= 3 then
+						frame_data[part] = CFrame.new(n[1], n[2], n[3])
 					end
 				end
-				table.insert(frames, {Time = t_val, Data = frame_data})
+				if next(frame_data) then
+					table.insert(frames, {Time = t_val, Data = frame_data})
+				end
 			end
 			if #frames > 0 then
+				table.sort(frames, function(a, b) return (a.Time or 0) < (b.Time or 0) end)
 				is_custom_format = true
-				local anim_name = url:match("([^/\\]+)%.lua$") or "CustomAnim"
+				local anim_name = (type(source_url) == "string" and source_url:match("([^/\\]+)%.lua$")) or "CustomAnim"
 				keyframe_data = {[anim_name] = frames}
 			end
 		end
-
 		if not is_custom_format then
-			local loaded_fn, err = loadstring(response);
-			if not loaded_fn then return "Animation Error: Invalid script from URL. " .. tostring(err) end;
-			local success, data = pcall(loaded_fn)
-			if not success then return "Animation Error: Script from URL failed to execute. " .. tostring(data) end
-			keyframe_data = data;
+			local loaded_fn, err = loadstring(response)
+			if not loaded_fn then
+				return nil, "Invalid script: " .. tostring(err)
+			end
+			local ok, data = pcall(loaded_fn)
+			if not ok then
+				return nil, "Script failed: " .. tostring(data)
+			end
+			keyframe_data = data
 		end
-
-		if typeof(keyframe_data) ~= "table" then return "Animation Error: Script from URL did not return a table." end;
-        
-		anim.cache[url] = keyframe_data;
+		if typeof(keyframe_data) ~= "table" then
+			return nil, "did not return a table"
+		end
+		return keyframe_data, nil
 	end
 
-	local keyframes = keyframe_data[next(keyframe_data)];
+	local function load_from_url(url)
+		local response
+		local cache_path
+		if isfolder and makefolder and isfile and readfile and writefile then
+			pcall(function()
+				if not isfolder("ZenAnimCache") then makefolder("ZenAnimCache") end
+			end)
+			local safe_name = url:match("([^/]+)$") or "unknown.lua"
+			safe_name = safe_name:gsub("[^%w%._%-]", "_")
+			cache_path = "ZenAnimCache/" .. safe_name
+		end
+		-- prefer fresh http so corrupt disk cache never sticks
+		local success, http_res = pcall(game.HttpGet, game, url)
+		if success and type(http_res) == "string" and #http_res > 5 then
+			response = http_res
+			if cache_path then pcall(writefile, cache_path, response) end
+		elseif cache_path and isfile(cache_path) then
+			local ok, file_res = pcall(readfile, cache_path)
+			if ok then response = file_res end
+		end
+		if not response then
+			return nil, "Failed to fetch URL"
+		end
+		return parse_response(response, url)
+	end
+
+	local keyframe_data = anim.cache[url]
+	local keyframes = keyframe_data and extract_keyframes(keyframe_data) or nil
+
+	-- if cache missing/invalid, load
 	if not keyframes or #keyframes == 0 then
-		return "No keyframes array found for animation URL: " .. url;
+		anim.cache[url] = nil
+		if typeof(url) == "table" then
+			keyframe_data = url
+		elseif typeof(url) == "string" and url:sub(1, 4) ~= "http" and (
+			url:find("Time%s*=") or url:find("{Time") or url:find("^%s*return")
+			or url:find("^%s*{") or url:find("CFrame%.new") or #url > 400
+		) then
+			-- inline custom keyframe paste (not a filesystem path)
+			local kd, err = parse_response(url, "inline")
+			if not kd then return "Animation Error: " .. tostring(err) end
+			keyframe_data = kd
+		elseif typeof(url) == "string" and url:sub(1, 4) == "http" then
+			local kd, err = load_from_url(url)
+			if not kd then return "Animation Error: " .. tostring(err) end
+			keyframe_data = kd
+		else
+			if type(readfile) == "function" then
+				local success, file_res = pcall(readfile, url)
+				if not success then return "Animation Error: Failed to read local file." end
+				local kd, err = parse_response(file_res, url)
+				if not kd then return "Animation Error: " .. tostring(err) end
+				keyframe_data = kd
+			else
+				return "Animation Error: Cannot load local file (readfile not supported)."
+			end
+		end
+		anim.cache[url] = keyframe_data
+		keyframes = extract_keyframes(keyframe_data)
+	end
+
+	if not keyframes or #keyframes == 0 then
+		-- one more hard reload from network for http
+		if typeof(url) == "string" and url:sub(1, 4) == "http" then
+			anim.cache[url] = nil
+			local kd, err = load_from_url(url)
+			if kd then
+				anim.cache[url] = kd
+				keyframes = extract_keyframes(kd)
+			end
+		end
+	end
+
+	if not keyframes or #keyframes == 0 then
+		return "No keyframes array found for animation URL: " .. tostring(url)
 	end
 
 	anim.state.keyframes = keyframes;
