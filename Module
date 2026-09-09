@@ -142,7 +142,7 @@ local clone_char = function(model)
 		end
 	end
     
-	-- Manually reconstruct any missing Motor6Ds (bypasses games that break Clone())
+	-- Manually reconstruct any missing hehe Motor6Ds (bypasses games that break Clone())
 	for _, desc in ipairs(model:GetDescendants()) do
 		if desc:IsA("Motor6D") and desc.Part0 and desc.Part1 then
 			local p0_name = desc.Part0.Name
